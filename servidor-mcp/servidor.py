@@ -23,7 +23,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field, create_model
 
 import dominio
-from dominio import (RegraVioladaError, validar_reserva)
+from dominio import RegraVioladaError
 
 from mcp.server.mcpserver import (
     AcceptedElicitation,
@@ -163,12 +163,12 @@ def listar_salas() -> ListaDeSalas:
 
 @mcp.tool(description="Diz se uma sala esta livre no intervalo, e quais reservas conflitam.")
 def consultar_disponibilidade(sala: str, inicio: str, fim: str) -> Disponibilidade:
-    pedido =  _validar(sala, inicio, fim)
+    pedido = _validar(sala, inicio, fim)
     em_conflito = dominio.listar_conflitos(pedido)
     return Disponibilidade(
         sala=sala,
         livre=not em_conflito,
-        conflitos=[ConflitoOut(id=r["id"], inicio=r["inicio"], fim=r["fim"], responsavel=r["responsavel"]) for r in em_conflito],
+        conflitos=[ConflitoOut(id=r.id, inicio=r.inicio, fim=r.fim, responsavel=r.responsavel) for r in em_conflito],
     )
 
 
@@ -189,8 +189,9 @@ def escolha_de_sala(sala: str, inicio: str, fim: str) -> Elicit[BaseModel] | Non
     pergunta selado no `requestState`, e injeta o resultado na tool.
     """
     pedido = _validar(sala, inicio, fim)
+    if not dominio.listar_conflitos(pedido):
+        return None
     opcoes = dominio.obter_alternativas(pedido)
-
     if not opcoes:
         raise ToolError(dominio.ERRO_SEM_ALTERNATIVA)
     return Elicit("A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa.", _modelo_de_escolha(opcoes))
@@ -209,7 +210,7 @@ def reservar_sala(
         return ReservaOut(reservado=False, motivo="recusado")
     destino = sala if escolha.data is None else escolha.data.sala
     pedido = _validar(destino, inicio, fim)
-    if dominio.conflitos(destino, pedido.inicio, pedido.fim):
+    if dominio.listar_conflitos(pedido):
         # A alternativa foi ocupada entre a pergunta e o retry.
         raise ToolError(f"Sala ocupada no intervalo: {destino}")
     reserva = dominio.criar_reserva(destino, inicio, fim, responsavel)

@@ -8,12 +8,33 @@ processo e somem num restart, como o enunciado permite.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 
 FUSO_SAO_PAULO = timezone(timedelta(hours=-3))
+
+#Mensagens de erro
+ERRO_SALA = "Sala inexistente: {sala}"
+ERRO_JANELA = "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"
+ERRO_DURACAO = "Duracao acima do limite: a politica permite no maximo 2 horas"
+ERRO_INTERVALO = "Intervalo invalido: fim deve ser posterior a inicio"
+ERRO_CONFLITO = "A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa."
+ERRO_SEM_ALTERNATIVA = "Sem alternativas disponiveis no intervalo"
+ERRO_DATA = "Data invalida: {valor} nao esta em ISO 8601 com fuso horario"
+
+DADOS = Path(__file__).resolve().parent.parent / "dados"
+
+HORARIO_ABERTURA = time(8, 0)
+HORARIO_FECHAMENTO = time(20, 0)
+DURACAO_MAXIMA = timedelta(hours=2)
+MAX_ALTERNATIVAS = 3
+
+
+
+POLITICA_TEXTO: str = (DADOS / "politica-de-uso.md").read_text(encoding="utf-8")
+POLITICA_VERSAO: str = POLITICA_TEXTO.splitlines()[0].split(":", 1)[1].strip()
 
 class RegraVioladaError(Exception):
     """Pedido que fere uma regra de sala ou de política. A mensagem vai para o cliente."""
@@ -21,7 +42,7 @@ class RegraVioladaError(Exception):
 class IntervaloTempo:
     """Representa um intervalo de tempo semiaberto [inicio, fim)."""
 
-    def __init__(self, inicio: str, fim: datetime):
+    def __init__(self, inicio: str, fim: str):
         self.inicio = self._from_iso_str_to_data(inicio)
         self.fim = self._from_iso_str_to_data(fim)
 
@@ -35,7 +56,7 @@ class IntervaloTempo:
         return instante.astimezone(FUSO_SAO_PAULO)
 
     def is_valid(self) -> bool:
-        return self.inicio <= self.fim
+        return self.inicio < self.fim
 
     def exceeds(self, max_duration: timedelta) -> bool:
         return self.fim - self.inicio > max_duration
@@ -48,21 +69,20 @@ class IntervaloTempo:
 
 @dataclass(frozen=True)
 class Pedido:
-    sala: dict
+    sala: Sala
     intervalo: IntervaloTempo
 
-@dataclass()
+@dataclass
 class Reserva:
     id: str
     sala: str
-    intervalo: IntervaloTempo
+    inicio: str
+    fim: str
     responsavel: str
-    
-    def __init__(self, id: str, sala: dict, inicio: datetime, fim: datetime, responsavel: str):
-        self.id = id
-        self.sala = sala
-        self.intervalo = IntervaloTempo(inicio, fim)
-        self.responsavel = responsavel
+    intervalo: IntervaloTempo = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.intervalo = IntervaloTempo(self.inicio, self.fim)
     
 @dataclass(frozen=True)
 class Sala:
@@ -71,23 +91,7 @@ class Sala:
     capacidade: int
     recursos: list[str]
 
-DADOS = Path(__file__).resolve().parent.parent / "dados"
 
-HORARIO_ABERTURA = time(8, 0)
-HORARIO_FECHAMENTO = time(20, 0)
-DURACAO_MAXIMA = timedelta(hours=2)
-MAX_ALTERNATIVAS = 3
-
-ERRO_SALA = "Sala inexistente: {sala}"
-ERRO_JANELA = "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"
-ERRO_DURACAO = "Duracao acima do limite: a politica permite no maximo 2 horas"
-ERRO_INTERVALO = "Intervalo invalido: fim deve ser posterior a inicio"
-ERRO_CONFLITO = "A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa."
-ERRO_SEM_ALTERNATIVA = "Sem alternativas disponiveis no intervalo"
-ERRO_DATA = "Data invalida: {valor} nao esta em ISO 8601 com fuso horario"
-
-POLITICA_TEXTO: str = (DADOS / "politica-de-uso.md").read_text(encoding="utf-8")
-POLITICA_VERSAO: str = POLITICA_TEXTO.splitlines()[0].split(":", 1)[1].strip()
 
 
 salas_json = json.loads((DADOS / "salas.json").read_text(encoding="utf-8"))
@@ -122,9 +126,7 @@ def obter_alternativas(pedido: Pedido) -> list[str]:
         for sala in salas
         if sala.id != pedido.sala.id
         and sala.capacidade >= pedido.sala.capacidade
-        and not reservas.filter(
-            lambda r: r.sala == sala.id and r.intervalo.colides(pedido.intervalo)
-        )
+        and not any(r.sala == sala.id and r.intervalo.colides(pedido.intervalo) for r in reservas)
     ]
     candidatas.sort(key=lambda s: (s.capacidade, s.id))
     return [s.id for s in candidatas[:MAX_ALTERNATIVAS]]
@@ -138,5 +140,5 @@ def criar_reserva(sala_id: str, inicio: str, fim: str, responsavel: str) -> dict
         "fim": fim,
         "responsavel": responsavel,
     }
-    reservas.append(reserva)
+    reservas.append(Reserva(**reserva))
     return reserva
