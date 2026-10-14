@@ -1,0 +1,14 @@
+[project]
+name = "desafio-a2a-com-mcp"
+version = "1.0.0"
+description = "A Ponte: servidor MCP de salas e agente A2A que o consome por dentro"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp==2.3.0",
+    "a2a-sdk[http-server]==1.2.2",
+    "uvicorn==0.37.0",
+]
+
+[tool.uv]
+package = false
