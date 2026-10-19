@@ -92,53 +92,63 @@ class Sala:
     recursos: list[str]
 
 
+class GerenciadorReservas:
+    """Salas e reservas em memória, com as regras de validação, conflito e alternativas."""
+
+    def __init__(self, salas: list[Sala], reservas: list[Reserva]):
+        self.salas = salas
+        self.reservas = reservas
+
+    @classmethod
+    def carregar(cls, diretorio: Path) -> GerenciadorReservas:
+        """Lê `salas.json` e `reservas.json` do diretório de dados."""
+        salas_json = json.loads((diretorio / "salas.json").read_text(encoding="utf-8"))
+        reservas_json = json.loads((diretorio / "reservas.json").read_text(encoding="utf-8"))
+        return cls([Sala(**sala) for sala in salas_json], [Reserva(**reserva) for reserva in reservas_json])
+
+    def validar_reserva(self, sala_id: str, inicio: str, fim: str) -> Pedido:
+        """Aplica as regras na ordem: sala, intervalo, janela de uso, duração."""
+        sala = next((sala for sala in self.salas if sala.id == sala_id), None)
+        if not sala:
+            raise RegraVioladaError(ERRO_SALA.format(sala=sala_id))
+        pedido = Pedido(sala, IntervaloTempo(inicio, fim))
+        if not pedido.intervalo.is_valid():
+            raise RegraVioladaError(ERRO_INTERVALO)
+        if not pedido.intervalo.is_within(HORARIO_ABERTURA, HORARIO_FECHAMENTO):
+            raise RegraVioladaError(ERRO_JANELA)
+        if pedido.intervalo.exceeds(DURACAO_MAXIMA):
+            raise RegraVioladaError(ERRO_DURACAO)
+        return pedido
+
+    def listar_conflitos(self, pedido: Pedido) -> list[Reserva]:
+        """Reservas que colidem com o intervalo pedido."""
+        return self._conflitos(pedido.sala.id, pedido.intervalo)
+
+    def obter_alternativas(self, pedido: Pedido) -> list[str]:
+        """Salas livres no intervalo com capacidade >= a pedida, por (capacidade, id), no máximo três."""
+        candidatas = [
+            sala
+            for sala in self.salas
+            if sala.id != pedido.sala.id
+            and sala.capacidade >= pedido.sala.capacidade
+            and not self._conflitos(sala.id, pedido.intervalo)
+        ]
+        candidatas.sort(key=lambda s: (s.capacidade, s.id))
+        return [s.id for s in candidatas[:MAX_ALTERNATIVAS]]
+
+    def criar_reserva(self, sala_id: str, inicio: str, fim: str, responsavel: str) -> dict:
+        reserva = {
+            "id": f"res-{len(self.reservas) + 1:04d}",
+            "sala": sala_id,
+            "inicio": inicio,
+            "fim": fim,
+            "responsavel": responsavel,
+        }
+        self.reservas.append(Reserva(**reserva))
+        return reserva
+
+    def _conflitos(self, sala_id: str, intervalo: IntervaloTempo) -> list[Reserva]:
+        return [r for r in self.reservas if r.sala == sala_id and r.intervalo.colides(intervalo)]
 
 
-salas_json = json.loads((DADOS / "salas.json").read_text(encoding="utf-8"))
-reservas_json = json.loads((DADOS / "reservas.json").read_text(encoding="utf-8"))
-salas = [Sala(**sala) for sala in salas_json]
-reservas = [Reserva(**reserva) for reserva in reservas_json]
-
-def listar_conflitos(pedido: Pedido) -> list[Reserva]:
-    """Reservas que colidem com o intervalo pedido."""
-    return [r for r in reservas if r.sala == pedido.sala.id and r.intervalo.colides(pedido.intervalo)]
-
-def validar_reserva(sala_id: str, inicio: str, fim: str) -> Pedido:
-    """Aplica as regras na ordem: sala, intervalo, janela de uso, duração."""
-    sala = next((sala for sala in salas if sala.id == sala_id), None)
-    if not sala:
-        raise RegraVioladaError(ERRO_SALA.format(sala=sala_id))
-    pedido = Pedido(sala, IntervaloTempo(inicio, fim))
-    if not pedido.intervalo.is_valid():
-        raise RegraVioladaError(ERRO_INTERVALO)
-    
-    if (not pedido.intervalo.is_within(HORARIO_ABERTURA, HORARIO_FECHAMENTO)):
-        raise RegraVioladaError(ERRO_JANELA)
-    if pedido.intervalo.exceeds(DURACAO_MAXIMA):
-        raise RegraVioladaError(ERRO_DURACAO)
-    
-    return pedido
-
-def obter_alternativas(pedido: Pedido) -> list[str]:
-    """Salas livres no intervalo com capacidade >= a pedida, por (capacidade, id), no máximo três."""
-    candidatas = [
-        sala
-        for sala in salas
-        if sala.id != pedido.sala.id
-        and sala.capacidade >= pedido.sala.capacidade
-        and not any(r.sala == sala.id and r.intervalo.colides(pedido.intervalo) for r in reservas)
-    ]
-    candidatas.sort(key=lambda s: (s.capacidade, s.id))
-    return [s.id for s in candidatas[:MAX_ALTERNATIVAS]]
-
-
-def criar_reserva(sala_id: str, inicio: str, fim: str, responsavel: str) -> dict:
-    reserva = {
-        "id": f"res-{len(reservas) + 1:04d}",
-        "sala": sala_id,
-        "inicio": inicio,
-        "fim": fim,
-        "responsavel": responsavel,
-    }
-    reservas.append(Reserva(**reserva))
-    return reserva
+gerenciador = GerenciadorReservas.carregar(DADOS)
