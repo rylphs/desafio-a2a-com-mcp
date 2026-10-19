@@ -1,6 +1,6 @@
 """Agente Central de Salas: servidor A2A v1.0 (JSON-RPC) por fora, host MCP por dentro.
 
-    uv run python agente/agente.py
+    uv run python agente/agente_salas.py
 
 Variáveis de ambiente (todas opcionais):
     AGENTE_HOST       interface de escuta             (padrão 127.0.0.1)
@@ -30,7 +30,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 
 from cliente_mcp import ClienteMCP
-from ponte import AgenteDeSalas
+from executor_reservas import AgenteDeSalas
 
 HOST = os.environ.get("AGENTE_HOST", "127.0.0.1")
 PORTA = int(os.environ.get("AGENTE_PORT", "7300"))

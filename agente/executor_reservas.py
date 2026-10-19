@@ -40,7 +40,7 @@ ESCOLHA = re.compile(r"^escolha=(\S+)$")
 TRACEPARENT = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-([0-9a-f]{2})$")
 RECUSAR = "recusar"
 
-log = logging.getLogger("agente.ponte")
+log = logging.getLogger("agente.executor_reservas")
 
 
 @dataclass

@@ -21,8 +21,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, create_model
 
-import dominio
-from dominio import RegraVioladaError
+import reservas
+from reservas import RegraVioladaError
 
 from mcp.server.mcpserver import (
     AcceptedElicitation,
@@ -148,22 +148,22 @@ class ReservaOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _validar(sala: str, inicio: str, fim: str) -> dominio.Pedido:
+def _validar(sala: str, inicio: str, fim: str) -> reservas.Pedido:
     try:
-        return dominio.gerenciador.validar_reserva(sala, inicio, fim)
+        return reservas.gerenciador.validar_reserva(sala, inicio, fim)
     except RegraVioladaError as erro:
         raise ToolError(str(erro)) from None
 
 
 @mcp.tool(description="Lista todas as salas com capacidade e recursos.")
 def listar_salas() -> ListaDeSalas:
-    return ListaDeSalas(salas=[SalaOut(**dataclasses.asdict(s)) for s in dominio.gerenciador.salas])
+    return ListaDeSalas(salas=[SalaOut(**dataclasses.asdict(s)) for s in reservas.gerenciador.salas])
 
 
 @mcp.tool(description="Diz se uma sala esta livre no intervalo, e quais reservas conflitam.")
 def consultar_disponibilidade(sala: str, inicio: str, fim: str) -> Disponibilidade:
     pedido = _validar(sala, inicio, fim)
-    em_conflito = dominio.gerenciador.listar_conflitos(pedido)
+    em_conflito = reservas.gerenciador.listar_conflitos(pedido)
     return Disponibilidade(
         sala=sala,
         livre=not em_conflito,
@@ -188,11 +188,11 @@ def escolha_de_sala(sala: str, inicio: str, fim: str) -> Elicit[BaseModel] | Non
     pergunta selado no `requestState`, e injeta o resultado na tool.
     """
     pedido = _validar(sala, inicio, fim)
-    if not dominio.gerenciador.listar_conflitos(pedido):
+    if not reservas.gerenciador.listar_conflitos(pedido):
         return None
-    opcoes = dominio.gerenciador.obter_alternativas(pedido)
+    opcoes = reservas.gerenciador.obter_alternativas(pedido)
     if not opcoes:
-        raise ToolError(dominio.ERRO_SEM_ALTERNATIVA)
+        raise ToolError(reservas.ERRO_SEM_ALTERNATIVA)
     return Elicit("A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa.", _modelo_de_escolha(opcoes))
 
 
@@ -209,10 +209,10 @@ def reservar_sala(
         return ReservaOut(reservado=False, motivo="recusado")
     destino = sala if escolha.data is None else escolha.data.sala
     pedido = _validar(destino, inicio, fim)
-    if dominio.gerenciador.listar_conflitos(pedido):
+    if reservas.gerenciador.listar_conflitos(pedido):
         # A alternativa foi ocupada entre a pergunta e o retry.
         raise ToolError(f"Sala ocupada no intervalo: {destino}")
-    reserva = dominio.gerenciador.criar_reserva(destino, inicio, fim, responsavel)
+    reserva = reservas.gerenciador.criar_reserva(destino, inicio, fim, responsavel)
     log.info("reserva criada %s", json.dumps(reserva, ensure_ascii=False))
     return ReservaOut(
         reserva=reserva["id"],
@@ -220,7 +220,7 @@ def reservar_sala(
         inicio=inicio,
         fim=fim,
         responsavel=responsavel,
-        politica=dominio.POLITICA_VERSAO,
+        politica=reservas.POLITICA_VERSAO,
     )
 
 
@@ -231,7 +231,7 @@ def reservar_sala(
 
 @mcp.resource("politica://uso", name="politica-de-uso", description="Politica de uso das salas.", mime_type="text/markdown")
 def politica_de_uso() -> str:
-    return dominio.POLITICA_TEXTO
+    return reservas.POLITICA_TEXTO
 
 
 if __name__ == "__main__":
