@@ -1,8 +1,4 @@
 """Domínio das salas: dados do starter, regras da política e cálculo de alternativas.
-
-Tudo aqui é Python puro, sem nada de protocolo. As reservas vivem em memória:
-as criadas durante a execução valem para as consultas seguintes do mesmo
-processo e somem num restart, como o enunciado permite.
 """
 
 from __future__ import annotations
