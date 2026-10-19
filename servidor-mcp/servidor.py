@@ -1,14 +1,13 @@
 """Servidor MCP da Central de Salas (Streamable HTTP, revisão 2026-07-28).
+Tools:
+- listar_salas: lista todas as salas com capacidade e recursos.
+- consultar_disponibilidade: diz se uma sala esta livre no intervalo, e quais reservas conflitam.
+- reservar_sala: reserva uma sala. Se o intervalo estiver ocupado, pergunta qual alternativa
+usar. O MRTR é feito pelo resolver `escolha_de_sala`, que devolve `Elicit(...)` se houver conflito.
 
-Três tools, um resource e o ciclo de MRTR na reserva. O MRTR não é feito à mão:
-`reservar_sala` declara um parâmetro preenchido pelo resolver `escolha_de_sala`.
-Quando o resolver devolve `Elicit(...)`, o SDK encerra a resposta com
-`resultType: input_required`, um `inputRequests` em form mode e um
-`requestState`. O `RequestStateBoundary` do SDK sela esse estado com AES-256-GCM
-sob a chave de `REQUEST_STATE_SECRET` e o verifica no retry. Nada fica em
-memória entre a pergunta e o retry.
+Resources:
+- politica://uso: política de uso das salas, em markdown.
 
-    REQUEST_STATE_SECRET=... uv run python servidor-mcp/servidor.py
 """
 
 from __future__ import annotations
@@ -151,20 +150,20 @@ class ReservaOut(BaseModel):
 
 def _validar(sala: str, inicio: str, fim: str) -> dominio.Pedido:
     try:
-        return dominio.validar_reserva(sala, inicio, fim)
+        return dominio.gerenciador.validar_reserva(sala, inicio, fim)
     except RegraVioladaError as erro:
         raise ToolError(str(erro)) from None
 
 
 @mcp.tool(description="Lista todas as salas com capacidade e recursos.")
 def listar_salas() -> ListaDeSalas:
-    return ListaDeSalas(salas=[SalaOut(**dataclasses.asdict(s)) for s in dominio.salas])
+    return ListaDeSalas(salas=[SalaOut(**dataclasses.asdict(s)) for s in dominio.gerenciador.salas])
 
 
 @mcp.tool(description="Diz se uma sala esta livre no intervalo, e quais reservas conflitam.")
 def consultar_disponibilidade(sala: str, inicio: str, fim: str) -> Disponibilidade:
     pedido = _validar(sala, inicio, fim)
-    em_conflito = dominio.listar_conflitos(pedido)
+    em_conflito = dominio.gerenciador.listar_conflitos(pedido)
     return Disponibilidade(
         sala=sala,
         livre=not em_conflito,
@@ -189,9 +188,9 @@ def escolha_de_sala(sala: str, inicio: str, fim: str) -> Elicit[BaseModel] | Non
     pergunta selado no `requestState`, e injeta o resultado na tool.
     """
     pedido = _validar(sala, inicio, fim)
-    if not dominio.listar_conflitos(pedido):
+    if not dominio.gerenciador.listar_conflitos(pedido):
         return None
-    opcoes = dominio.obter_alternativas(pedido)
+    opcoes = dominio.gerenciador.obter_alternativas(pedido)
     if not opcoes:
         raise ToolError(dominio.ERRO_SEM_ALTERNATIVA)
     return Elicit("A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa.", _modelo_de_escolha(opcoes))
@@ -210,10 +209,10 @@ def reservar_sala(
         return ReservaOut(reservado=False, motivo="recusado")
     destino = sala if escolha.data is None else escolha.data.sala
     pedido = _validar(destino, inicio, fim)
-    if dominio.listar_conflitos(pedido):
+    if dominio.gerenciador.listar_conflitos(pedido):
         # A alternativa foi ocupada entre a pergunta e o retry.
         raise ToolError(f"Sala ocupada no intervalo: {destino}")
-    reserva = dominio.criar_reserva(destino, inicio, fim, responsavel)
+    reserva = dominio.gerenciador.criar_reserva(destino, inicio, fim, responsavel)
     log.info("reserva criada %s", json.dumps(reserva, ensure_ascii=False))
     return ReservaOut(
         reserva=reserva["id"],
