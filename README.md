@@ -109,7 +109,7 @@ Pontos em que os SDKs divergem do que o desafio exige. Os três primeiros foram 
 Última execução, com os dois processos recém-iniciados a partir de um clone limpo:
 
 ```
-trace-id desta execucao: 41e77be3646e145c4de25fcb4f723a3b
+trace-id desta execucao: 111a9a6978e8114e1c1b9f9e67d8423c
 procure esse valor no stderr do servidor MCP para conferir a propagacao do traceparent.
 
 PASS 01 tools/list traz as tres tools
